@@ -60,7 +60,7 @@ jobs:
         with:
           # yamllint disable rule:line-length
           images: |
-            name=${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }},enable=${{ github.event_name != 'workflow_dispatch' || (github.event_name == 'workflow_dispatch' && inputs.push_to_docker_hub == true) }}
+            name=${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }},enable=${{ inputs.push_to_docker_hub == true }}
             name=${{ env.GITHUB_REGISTRY }}/${{ github.repository }}
           # Disable generating the 'latest' tag on the image.
           # It will be conditionally tagged later in the workflow.
@@ -96,7 +96,7 @@ jobs:
 
       - name: Login to Docker Hub
         uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
-        if: github.event_name != 'workflow_dispatch' || inputs.push_to_docker_hub == true  # yamllint disable-line rule:line-length
+        if: inputs.push_to_docker_hub == true  # yamllint disable-line rule:line-length
         with:
           registry: ${{ env.DOCKER_REGISTRY }}
           username: ${{ secrets.DOCKER_USERNAME }}
