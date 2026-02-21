@@ -125,9 +125,19 @@ func (z *zone) mainloop() {
 				z.entries = make(map[string]entries)
 			}
 		case q := <-z.queries:
-			for _, entry := range z.entries[q.Name] {
-				if q.matches(entry) {
-					q.result <- entry
+			if q.Question.Qtype == dns.TypeNone {
+				if _, ok := z.entries[q.Question.Name]; ok {
+					q.result <- &entry{}
+				}
+			} else if q.Question.Qtype == dns.TypeANY {
+				for _, entries := range z.entries[q.Question.Name] {
+					q.result <- entries
+				}
+			} else {
+				for _, entry := range z.entries[q.Question.Name] {
+					if q.matches(entry) {
+						q.result <- entry
+					}
 				}
 			}
 			close(q.result)
@@ -143,7 +153,13 @@ func (z *zone) query(q dns.Question) (entries []*entry) {
 		if err != nil {
 			return
 		}
-		response := dup.(*entry)
+		if dup == nil {
+			continue
+		}
+		response, ok := dup.(*entry)
+		if !ok {
+			continue
+		}
 		entries = append(entries, response)
 	}
 	return
@@ -228,7 +244,47 @@ func (c *connector) mainloop() {
 		}
 		msg.Extra = append(msg.Extra, c.findExtra(msg.Answer...)...)
 
-		if len(msg.Answer) > 0 {
+		nameExists := false
+		var existingTypes []uint16
+		for _, q := range msg.Question {
+			existsQuery := dns.Question{
+				Name:  q.Name,
+				Qtype: dns.TypeANY,
+			}
+			res := c.zone.query(existsQuery)
+			if len(res) > 0 {
+				nameExists = true
+				for _, e := range res {
+					existingTypes = append(existingTypes, e.RR.Header().Rrtype)
+				}
+				break
+			}
+		}
+
+		if len(msg.Answer) > 0 || nameExists {
+			if len(msg.Answer) == 0 && nameExists {
+				for _, q := range msg.Question {
+					log.Printf("Sending NSEC authoritative reply for known name to %s: %s %s", msg.UDPAddr, q.Name, dns.TypeToString[q.Qtype])
+					nsec := &dns.NSEC{
+						Hdr: dns.RR_Header{
+							Name:   q.Name,
+							Rrtype: dns.TypeNSEC,
+							Class:  dns.ClassINET,
+							Ttl:    120,
+						},
+						NextDomain: q.Name,
+						TypeBitMap: existingTypes,
+					}
+					if isLegacyUnicast {
+						nsec.Hdr.Ttl = 10
+					} else {
+						nsec.Hdr.Class |= 0x8000 // Cache-Flush bit
+					}
+					msg.Answer = append(msg.Answer, nsec)
+				}
+			} else {
+				log.Printf("Sending authoritative reply for known name to %s: %s", msg.UDPAddr, msg.Answer)
+			}
 			var addr *net.UDPAddr
 			// https://tools.ietf.org/html/rfc6762#section-5.4
 			// Check if unicast-response bit set
