@@ -125,16 +125,17 @@ func (z *zone) mainloop() {
 				z.entries = make(map[string]entries)
 			}
 		case q := <-z.queries:
-			if q.Question.Qtype == dns.TypeNone {
-				if _, ok := z.entries[q.Question.Name]; ok {
+			switch q.Qtype {
+			case dns.TypeNone:
+				if _, ok := z.entries[q.Name]; ok {
 					q.result <- &entry{}
 				}
-			} else if q.Question.Qtype == dns.TypeANY {
-				for _, entries := range z.entries[q.Question.Name] {
+			case dns.TypeANY:
+				for _, entries := range z.entries[q.Name] {
 					q.result <- entries
 				}
-			} else {
-				for _, entry := range z.entries[q.Question.Name] {
+			default:
+				for _, entry := range z.entries[q.Name] {
 					if q.matches(entry) {
 						q.result <- entry
 					}
